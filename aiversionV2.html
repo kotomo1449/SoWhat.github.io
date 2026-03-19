@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk Scoring Dashboard - Professional Edition</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8fafc; --surface: #ffffff; --border: #e2e8f0; --accent: #10b981;
+    --accent-dark: #065f46; --danger: #ef4444; --text-main: #1e293b; --text-muted: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Sarabun', sans-serif; background-color: var(--bg); color: var(--text-main); }
+
+  /* Header & Progress */
+  .header { background: linear-gradient(135deg, var(--accent-dark) 0%, #064e3b 100%); color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+  .status-info { font-size: 13px; background: rgba(255,255,255,0.15); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); margin-top: 5px; display: inline-block; }
+  
+  #progress-container { display: none; width: 100%; height: 4px; background: rgba(0,0,0,0.1); position: fixed; top: 0; z-index: 1000; }
+  #progress-bar { width: 0%; height: 100%; background: #fbbf24; transition: width 0.3s; }
+
+  .container { padding: 20px 30px; max-width: 1600px; margin: 0 auto; }
+
+  /* Compact Filters */
+  .filter-bar { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .filter-group select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: #fff; width: auto; min-width: 80px; cursor: pointer; font-size: 13px; }
+  
+  .btn-reset { padding: 7px 15px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-main); }
+  .btn-reset:hover { background: #f1f5f9; }
+
+  /* KPI Section */
+  .kpi-label { font-size: 14px; font-weight: 700; color: var(--accent-dark); margin: 20px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+  .kpi-card { background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+  .kpi-card h3 { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+  .kpi-card .value { font-size: 24px; font-weight: 700; font-family: 'IBM Plex Mono'; }
+  
+  .r7 { border-top: 4px solid #7f1d1d; color: #7f1d1d; }
+  .r6 { border-top: 4px solid #b91c1c; color: #b91c1c; }
+  .r5 { border-top: 4px solid #ea580c; color: #ea580c; }
+  .r4 { border-top: 4px solid #f59e0b; color: #f59e0b; }
+  .amt { border-top: 4px solid var(--accent); color: var(--text-main); }
+
+  /* Charts & Tables */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+  .card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border); }
+  
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+  .btn-export { background: #10b981; color: white; padding: 7px 15px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn-upload { background: #fff; color: var(--accent-dark); padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 14px; }
+
+  .table-wrapper { overflow-x: auto; max-height: 450px; }
+  table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+  th { background: #f8fafc; padding: 12px; font-size: 12px; text-align: left; position: sticky; top: 0; border-bottom: 2px solid var(--border); z-index: 10; }
+  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .num { text-align: right; font-family: 'IBM Plex Mono'; }
+  .badge { padding: 2px 8px; border-radius: 4px; color: white; font-weight: bold; }
+</style>
+</head>
+<body>
+
+  <div id="progress-container"><div id="progress-bar"></div></div>
+
+  <div class="header">
+    <div>
+      <h2 style="font-size:18px; letter-spacing: 0.5px;">Financial Risk Dashboard</h2>
+      <div class="status-info" id="status-text">สถานะ: รอการนำเข้าข้อมูล</div>
+    </div>
+    <input type="file" id="fileUpload" style="display:none" accept=".csv, .xlsx">
+    <button class="btn-upload" onclick="document.getElementById('fileUpload').click()">📂 นำเข้าไฟล์ข้อมูล</button>
+  </div>
+
+  <div class="container" id="main-content" style="display:none">
+    
+    <div class="filter-bar">
+      <div class="filter-group"><label>ปีงบประมาณ</label><select id="f-year"></select></div>
+      <div class="filter-group"><label>เดือน</label><select id="f-month"></select></div>
+      <div class="filter-group"><label>เขตสุขภาพ</label><select id="f-ket"></select></div>
+      <div class="filter-group"><label>จังหวัด</label><select id="f-prov"></select></div>
+      <button class="btn-reset" onclick="resetFilters()">🔄 รีเซ็ตตัวกรอง</button>
+    </div>
+
+    <div class="kpi-label">🛑 จำนวนหน่วยงานแยกตามระดับความเสี่ยง (Risk Scoring)</div>
+    <div class="kpi-grid">
+      <div class="kpi-card r7"><h3>Risk Level 7</h3><div class="value" id="k-r7">0</div></div>
+      <div class="kpi-card r6"><h3>Risk Level 6</h3><div class="value" id="k-r6">0</div></div>
+      <div class="kpi-card r5"><h3>Risk Level 5</h3><div class="value" id="k-r5">0</div></div>
+      <div class="kpi-card r4"><h3>Risk Level 4</h3><div class="value" id="k-r4">0</div></div>
+    </div>
+
+    <div class="kpi-label">💰 ยอดเงินรวมตามเงื่อนไขที่เลือก (หน่วย: ล้านบาท)</div>
+    <div class="kpi-grid">
+      <div class="kpi-card amt"><h3>เงินบำรุงคงเหลือสุทธิ</h3><div class="value" id="k-net">0.00</div></div>
+      <div class="kpi-card amt"><h3>NWC</h3><div class="value" id="k-nwc">0.00</div></div>
+      <div class="kpi-card amt"><h3>Net Income (NI)</h3><div class="value" id="k-ni">0.00</div></div>
+      <div class="kpi-card amt"><h3>EBITDA</h3><div class="value" id="k-ebitda">0.00</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card"><canvas id="c-neg" height="320"></canvas></div>
+      <div class="card"><canvas id="c-pos" height="320"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 style="font-size:15px; color:var(--accent-dark);">📋 รายละเอียดหน่วยงาน (Risk 4 - 7)</h3>
+        <button class="btn-export" onclick="exportTable()">📊 ส่งออกข้อมูล (Excel)</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="risk-table">
+          <thead>
+            <tr>
+              <th>เขต</th><th>จังหวัด</th><th>หน่วยงาน</th><th>NWC (M)</th><th>NI (M)</th><th>เงินบำรุง (M)</th><th>EBITDA (M)</th><th>Risk</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allData = [];
+    let charts = {};
+    const monthsArr = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+
+    document.getElementById('fileUpload').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const pContainer = document.getElementById('progress-container');
+      const pBar = document.getElementById('progress-bar');
+      
+      pContainer.style.display = 'block';
+      pBar.style.width = '30%';
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        pBar.style.width = '70%';
+        const data = new Uint8Array(event.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:0});
+        
+        allData = json.map(r => ({
+          ket: r.ket || r['เขต'] || '-',
+          province: r.province || r['จังหวัด'] || '-',
+          orgname: r.orgname || r['ชื่อรพ.'] || '-',
+          Fyear: r.Fyear || r['ปี'] || 0,
+          FMonth: (r.FMonth || r['เดือน'] || '').trim(),
+          NWC: parseFloat(r.NWC)||0, NI: parseFloat(r.NI)||0, EBITDA: parseFloat(r.EBITDA)||0,
+          NetBal: parseFloat(r['เงินบำรุงคงเหลือสุทธิ'])||0, Risk: parseInt(r.RiskScoring)||0
+        }));
+
+        const lastYear = Math.max(...allData.map(d => d.Fyear));
+        const monthsInYear = [...new Set(allData.filter(d => d.Fyear == lastYear).map(d => d.FMonth))];
+        const lastMonth = monthsInYear.sort((a,b) => monthsArr.indexOf(b) - monthsArr.indexOf(a))[0];
+
+        document.getElementById('status-text').innerText = `ข้อมูลล่าสุด: ปี ${lastYear} เดือน ${lastMonth} `;
+        document.getElementById('main-content').style.display = 'block';
+        
+        pBar.style.width = '100%';
+        initFilters(lastYear, lastMonth);
+        setTimeout(() => pContainer.style.display = 'none', 500);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    function initFilters(y, m) {
+      fillSelect('f-year', [...new Set(allData.map(d => d.Fyear))].sort((a,b)=>b-a));
+      document.getElementById('f-year').value = y;
+      
+      const updateRest = () => {
+        const yr = document.getElementById('f-year').value;
+        fillSelect('f-month', [...new Set(allData.filter(d => d.Fyear == yr).map(d => d.FMonth))].sort((a,b)=>monthsArr.indexOf(a)-monthsArr.indexOf(b)), true);
+        fillSelect('f-ket', [...new Set(allData.map(d => d.ket))].sort((a,b)=>a-b), true);
+        fillSelect('f-prov', [...new Set(allData.map(d => d.province))].sort(), true);
+      };
+
+      updateRest();
+      document.getElementById('f-month').value = m;
+      document.querySelectorAll('.filter-bar select').forEach(s => s.onchange = updateDashboard);
+      updateDashboard();
+    }
+
+    function fillSelect(id, list, addAll=false) {
+      const el = document.getElementById(id);
+      el.innerHTML = (addAll ? '<option value="all">ทั้งหมด</option>' : '') + list.map(i => `<option value="${i}">${i}</option>`).join('');
+    }
+
+    function resetFilters() {
+      const lastYear = Math.max(...allData.map(d => d.Fyear));
+      document.getElementById('f-year').value = lastYear;
+      initFilters(lastYear, 'all');
+    }
+
+    function updateDashboard() {
+      const yr = document.getElementById('f-year').value;
+      const mo = document.getElementById('f-month').value;
+      const ke = document.getElementById('f-ket').value;
+      const pr = document.getElementById('f-prov').value;
+
+      const filtered = allData.filter(d => 
+        d.Fyear == yr && (mo=='all' || d.FMonth==mo) && (ke=='all' || d.ket==ke) && (pr=='all' || d.province==pr)
+      );
+
+      const kpi = (id, val) => document.getElementById(id).innerText = val;
+      const sumM = (field) => (filtered.reduce((s,d) => s + d[field], 0) / 1000000).toLocaleString(undefined,{minimumFractionDigits:2});
+
+      kpi('k-r7', filtered.filter(d=>d.Risk==7).length);
+      kpi('k-r6', filtered.filter(d=>d.Risk==6).length);
+      kpi('k-r5', filtered.filter(d=>d.Risk==5).length);
+      kpi('k-r4', filtered.filter(d=>d.Risk==4).length);
+
+      kpi('k-net', sumM('NetBal'));
+      kpi('k-nwc', sumM('NWC'));
+      kpi('k-ni', sumM('NI'));
+      kpi('k-ebitda', sumM('EBITDA'));
+
+      renderCharts(filtered);
+      renderTable(filtered);
+    }
+
+    function renderCharts(data) {
+      const sorted = [...data].sort((a,b) => a.NetBal - b.NetBal);
+      const neg = sorted.filter(d=>d.NetBal<0).slice(0,10);
+      const pos = sorted.filter(d=>d.NetBal>0).reverse().slice(0,10);
+
+      const draw = (id, d, title, color) => {
+        if(charts[id]) charts[id].destroy();
+        charts[id] = new Chart(document.getElementById(id), {
+          type:'bar',
+          data: { labels: d.map(x=>x.orgname.substring(0,15)), datasets:[{ data: d.map(x=>x.NetBal/1000000), backgroundColor:color }]},
+          options: { 
+            indexAxis:'y', maintainAspectRatio:false,
+            plugins: { 
+              title:{display:true, text:title + ' (ล้านบาท)', font:{family:'Sarabun', size:14}},
+              legend:{display:false} 
+            },
+            scales: { x: { ticks: { font:{family:'IBM Plex Mono'} } } }
+          }
+        });
+      };
+      draw('c-neg', neg, '10 อันดับเงินบำรุงติดลบ', '#ef4444');
+      draw('c-pos', pos, '10 อันดับเงินบำรุงสูงสุด', '#10b981');
+    }
+
+    function renderTable(data) {
+      const rows = data.filter(d=>d.Risk>=4).sort((a,b)=>b.Risk-a.Risk);
+      document.getElementById('table-body').innerHTML = rows.map(d => `
+        <tr>
+          <td>${d.ket}</td><td>${d.province}</td><td><b>${d.orgname}</b></td>
+          <td class="num" style="color:${d.NWC<0?'red':''}">${(d.NWC/1000000).toFixed(2)}</td>
+          <td class="num" style="color:${d.NI<0?'red':''}">${(d.NI/1000000).toFixed(2)}</td>
+          <td class="num" style="color:${d.NetBal<0?'red':''}">${(d.NetBal/1000000).toFixed(2)}</td>
+          <td class="num" style="color:${d.EBITDA<0?'red':''}">${(d.EBITDA/1000000).toFixed(2)}</td>
+          <td align="center"><span class="badge" style="background:${d.Risk>=6?'#b91c1c':'#f59e0b'}">${d.Risk}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function exportTable() {
+      const table = document.getElementById("risk-table");
+      const wb = XLSX.utils.table_to_book(table, {sheet: "Risk_Data"});
+      XLSX.writeFile(wb, `Risk_Analysis_Report.xlsx`);
+    }
+  </script>
+</body>
+</html>
